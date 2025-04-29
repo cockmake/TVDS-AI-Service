@@ -1,0 +1,1 @@
+from .component_template_image import component_template_image_router
