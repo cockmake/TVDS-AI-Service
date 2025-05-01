@@ -1,9 +1,11 @@
-from contextlib import asynccontextmanager
-import logging
-from fastapi import FastAPI
-from data_access.rabbitmq_async_client import rabbit_async_client
 import asyncio
-from ai import rabbitmq_component_defection_infer, rabbitmq_component_location_infer
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from data_access import rabbit_async_client
+from data_access.rabbitmq_async_client import rabbitmq_component_location_infer
 
 
 @asynccontextmanager
@@ -12,7 +14,6 @@ async def app_lifespan(app: FastAPI):
     logging.info("Initializing RabbitMQ client and consumer...")
     consume_background_tasks = []
     async with rabbit_async_client:
-        # await rabbit_async_client.consume("producer.component.location.queue", message_handler)
         # 异常推理
         # consume_background_tasks.append(
         #     asyncio.create_task(

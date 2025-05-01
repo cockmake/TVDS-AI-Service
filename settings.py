@@ -9,3 +9,6 @@
 # export RABBITMQ_PORT=5674
 # export RABBITMQ_USERNAME=root
 # export RABBITMQ_PASSWORD=csu@2024
+
+
+MINIO_LOCAL_CACHE_DIR = "minio-local-cache"

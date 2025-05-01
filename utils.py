@@ -1,12 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from typing import List, Dict
+from typing import Dict
 
 import cv2 as cv
-import numpy as np
-import time
 import matplotlib.pyplot as plt
-from concurrent.futures import ThreadPoolExecutor
-
+import numpy as np
 from ultralytics.utils.instance import Bboxes
 
 

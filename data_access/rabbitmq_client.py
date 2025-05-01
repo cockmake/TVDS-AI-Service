@@ -1,8 +1,9 @@
-import os
-import pika
 import json
-from typing import Optional, Union, Dict, List
 import logging
+import os
+from typing import Optional, Union, Dict, List
+
+import pika
 
 
 class RabbitMQError(Exception):

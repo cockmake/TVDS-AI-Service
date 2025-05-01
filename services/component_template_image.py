@@ -7,8 +7,10 @@ import os
 import numpy as np
 import aiohttp
 import cv2 as cv
+from data_access.minio_client import get_object
 from data_access import minio_client
 from utils import concatenate_images, plt_show_cv2_img, apply_bboxes
+from settings import MINIO_LOCAL_CACHE_DIR
 
 component_template_image_router = APIRouter(tags=['Component Template Image'])
 
@@ -26,8 +28,7 @@ async def get_component_template_image_preview(
     async with aiohttp.ClientSession() as session:
         for image_info in template_image:
             image_path = image_info['imagePath']
-            image = await minio_client.get_object(bucket_name, image_path, session)
-            image_bytes = await image.read()
+            image_bytes = await get_object(bucket_name, image_path, session, MINIO_LOCAL_CACHE_DIR)
             annotated_images.append({
                 'img': cv.imdecode(np.frombuffer(image_bytes, np.uint8), cv.IMREAD_COLOR),
                 'bboxes': np.array([

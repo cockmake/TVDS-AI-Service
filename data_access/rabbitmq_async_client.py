@@ -1,11 +1,17 @@
-import os
-import aio_pika
-import json
-from typing import Optional, Union, Dict, List, Callable, Coroutine, Any, Awaitable
-import logging
 import asyncio
+import json
+import logging
+import os
+from typing import Optional, Union, Dict, Callable, Any, Awaitable
 
+import aio_pika
+import aiohttp
+import cv2 as cv
+import numpy as np
 from aio_pika.abc import AbstractIncomingMessage
+from data_access.minio_client import get_object
+from settings import MINIO_LOCAL_CACHE_DIR
+from utils import concatenate_images
 
 
 class AsyncRabbitMQError(Exception):
@@ -137,6 +143,66 @@ class AsyncRabbitMQClient:
         except Exception as e:
             logging.error(f"Error publishing message: {e}")
             raise AsyncRabbitMQError(f"Error publishing message: {e}") from e
+
+
+# 处理消息队列
+async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
+    async with message.process():
+        print('component_location_infer')
+        # 处理消息
+        data = json.loads(message.body.decode())
+        logging.info(f"Received message: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
+        task_id = data['taskId']
+        vehicle_image_path = data['vehicleImagePath']
+        bucket_name = data['bucketName']
+
+        template_image_list = data['templateImageList']
+        async with aiohttp.ClientSession() as session:
+            component_visual_prompt = []
+            print("开始读取模板图像")
+            for component_id, component_info in template_image_list.items():
+                template_image_info = component_info['templateImage']
+                annotated_images = []
+                for image_info in template_image_info:
+                    image_bytes = await get_object(
+                        component_info['bucketName'],
+                        image_info['imagePath'],
+                        session,
+                        MINIO_LOCAL_CACHE_DIR
+                    )
+                    annotated_images.append({
+                        'img': cv.imdecode(np.frombuffer(image_bytes, np.uint8), cv.IMREAD_COLOR),
+                        'bboxes': np.array([
+                            [box[0], box[1], box[2], box[3]] for box in image_info['boxes']
+                        ])
+                    })
+                concatenated_image, all_bboxes = concatenate_images(annotated_images)
+                component_visual_prompt.append({
+                    'componentId': component_id,
+                    'image': concatenated_image,
+                    'bboxes': all_bboxes,
+                    'detection_conf': component_info['detectionConf'],
+                    'detection_iou': component_info['detectionIou'],
+                    'abnormality_desc': component_info['abnormalityDesc'],
+                })
+            print("读取模板图像完成")
+            print("开始读取车辆图像")
+            vehicle_image = await get_object(
+                bucket_name,
+                vehicle_image_path,
+                session,
+                MINIO_LOCAL_CACHE_DIR
+            )
+            print("读取车辆图像完成")
+
+
+async def rabbitmq_component_defection_infer(message: AbstractIncomingMessage):
+    async with message.process():
+        print('component_defection_infer')
+        # 处理消息
+        data = json.loads(message.body.decode())
+        logging.info(f"Received message: {data}")
 
 
 rabbit_async_client = AsyncRabbitMQClient()
