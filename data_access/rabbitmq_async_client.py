@@ -228,7 +228,7 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
                 is_cache=False,
             )
             images_path.append(image_path)
-        detection_result['images_path'] = images_path
+        detection_result['imagePaths'] = images_path
     producer_message = {
         'taskId': task_id,
         'componentLocationResult': component_location_result,

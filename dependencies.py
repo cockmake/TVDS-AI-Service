@@ -3,9 +3,10 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from settings import PRODUCER_COMPONENT_LOCATION_QUEUE_NAME
+
 from data_access import rabbit_async_client
 from data_access.rabbitmq_async_client import rabbitmq_component_location_infer
+from settings import PRODUCER_COMPONENT_LOCATION_QUEUE_NAME
 
 
 @asynccontextmanager
@@ -14,15 +15,6 @@ async def app_lifespan(app: FastAPI):
     logging.info("Initializing RabbitMQ client and consumer...")
     consume_background_tasks = []
     async with rabbit_async_client:
-        # 异常推理
-        # consume_background_tasks.append(
-        #     asyncio.create_task(
-        #         rabbit_async_client.consume(
-        #             "producer.component.location.queue",
-        #             rabbitmq_component_defection_infer
-        #         )
-        #     )
-        # )
         # 位置推理
         consume_background_tasks.append(
             asyncio.create_task(
@@ -32,6 +24,8 @@ async def app_lifespan(app: FastAPI):
                 )
             )
         )
+        # 异常推理
+        # <!todo>
         yield
         print("关闭进程")
         logging.info("Shutting down RabbitMQ client and consumer...")

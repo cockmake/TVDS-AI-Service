@@ -73,7 +73,8 @@ def component_detection_infer(source, visual_prompts: List[Dict]):
         r[component_id] = {
             'boxes': boxes.cpu().numpy().tolist(),
             'confidences': confidences.cpu().numpy().tolist(),
-            'abnormality_results': [''] * len(boxes),
+            'abnormalityResults': [''] * len(boxes),
+            'isAbnormal': [False] * len(boxes)
         }
         # 进行异常检测
         # <!todo>
