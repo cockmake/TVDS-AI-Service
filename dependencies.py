@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-
+from settings import PRODUCER_COMPONENT_LOCATION_QUEUE_NAME
 from data_access import rabbit_async_client
 from data_access.rabbitmq_async_client import rabbitmq_component_location_infer
 
@@ -27,7 +27,7 @@ async def app_lifespan(app: FastAPI):
         consume_background_tasks.append(
             asyncio.create_task(
                 rabbit_async_client.consume(
-                    "producer.component.location.queue",
+                    PRODUCER_COMPONENT_LOCATION_QUEUE_NAME,
                     rabbitmq_component_location_infer
                 )
             )

@@ -8,9 +8,12 @@ import aio_pika
 import aiohttp
 import cv2 as cv
 import numpy as np
+import snowflake
+from ai import component_detection_infer
 from aio_pika.abc import AbstractIncomingMessage
-from data_access.minio_client import get_object
-from settings import MINIO_LOCAL_CACHE_DIR
+from data_access.minio_client import get_object, put_object
+from settings import MINIO_LOCAL_CACHE_DIR, SNOWFLAKE_INSTANCE, CONSUMER_COMPONENT_LOCATION_KEY, \
+    COMPONENT_LOCATION_EXCHANGE_NAME
 from utils import concatenate_images
 
 
@@ -145,6 +148,9 @@ class AsyncRabbitMQClient:
             raise AsyncRabbitMQError(f"Error publishing message: {e}") from e
 
 
+rabbit_async_client = AsyncRabbitMQClient()
+
+
 # 处理消息队列
 async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
     async with message.process():
@@ -154,9 +160,7 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
         logging.info(f"Received message: {json.dumps(data, indent=2, ensure_ascii=False)}")
 
         task_id = data['taskId']
-        vehicle_image_path = data['vehicleImagePath']
-        bucket_name = data['bucketName']
-
+        detection_result_bucket = data['detectionResultBucket']
         template_image_list = data['templateImageList']
         async with aiohttp.ClientSession() as session:
             component_visual_prompt = []
@@ -178,23 +182,64 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
                         ])
                     })
                 concatenated_image, all_bboxes = concatenate_images(annotated_images)
+                visuals = {
+                    'bboxes': all_bboxes.bboxes,
+                    'cls': np.array([0] * len(all_bboxes))
+                }
                 component_visual_prompt.append({
-                    'componentId': component_id,
-                    'image': concatenated_image,
-                    'bboxes': all_bboxes,
+                    'component_id': component_id,
+                    'refer_image': concatenated_image,
+                    'prompt': visuals,
                     'detection_conf': component_info['detectionConf'],
                     'detection_iou': component_info['detectionIou'],
                     'abnormality_desc': component_info['abnormalityDesc'],
                 })
             print("读取模板图像完成")
             print("开始读取车辆图像")
-            vehicle_image = await get_object(
-                bucket_name,
+            railway_vehicle_bucket = data['railwayVehicleBucket']
+            vehicle_image_path = data['vehicleImagePath']
+            image_byte = await get_object(
+                railway_vehicle_bucket,
                 vehicle_image_path,
                 session,
                 MINIO_LOCAL_CACHE_DIR
             )
+            vehicle_image = cv.imdecode(np.frombuffer(image_byte, np.uint8), cv.IMREAD_COLOR)
             print("读取车辆图像完成")
+    component_location_result = component_detection_infer(vehicle_image, component_visual_prompt)
+    print("检测结果：\n", component_location_result)
+    snowflake_generator = snowflake.SnowflakeGenerator(SNOWFLAKE_INSTANCE)
+    producer_message = {}
+    for component_id, detection_result in component_location_result.items():
+        # 生成唯一的 ID
+        images_path = []
+        for i, (box, conf) in enumerate(zip(detection_result['boxes'], detection_result['confidences'])):
+            x1, y1, x2, y2 = box
+            # 生成唯一 ID
+            unique_id = next(snowflake_generator)
+            # 将处理结果上传到 MinIO
+            image_path = f"{task_id}/{component_id}/{unique_id}.jpg"
+            component_image = vehicle_image[y1:y2, x1:x2]
+            _, image_buffer = cv.imencode('.jpg', component_image)
+            await put_object(
+                detection_result_bucket,
+                image_path,
+                image_buffer.tobytes(),
+                is_cache=False,
+            )
+            images_path.append(image_path)
+        detection_result['images_path'] = images_path
+    producer_message = {
+        'taskId': task_id,
+        'componentLocationResult': component_location_result,
+    }
+    print("最终检测结果：\n", producer_message)
+    print("开始发布消息")
+    await rabbit_async_client.publish(
+        COMPONENT_LOCATION_EXCHANGE_NAME,
+        CONSUMER_COMPONENT_LOCATION_KEY,
+        producer_message
+    )
 
 
 async def rabbitmq_component_defection_infer(message: AbstractIncomingMessage):
@@ -203,9 +248,6 @@ async def rabbitmq_component_defection_infer(message: AbstractIncomingMessage):
         # 处理消息
         data = json.loads(message.body.decode())
         logging.info(f"Received message: {data}")
-
-
-rabbit_async_client = AsyncRabbitMQClient()
 
 
 async def main():

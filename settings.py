@@ -11,4 +11,10 @@
 # export RABBITMQ_PASSWORD=csu@2024
 
 
+COMPONENT_LOCATION_EXCHANGE_NAME = "component.location.exchange"
+CONSUMER_COMPONENT_LOCATION_KEY = "consumer.component.location.key"
+PRODUCER_COMPONENT_LOCATION_QUEUE_NAME = "producer.component.location.queue"
+
 MINIO_LOCAL_CACHE_DIR = "minio-local-cache"
+
+SNOWFLAKE_INSTANCE = 0
