@@ -15,6 +15,7 @@ from data_access.minio_client import get_object, put_object
 from settings import MINIO_LOCAL_CACHE_DIR, SNOWFLAKE_INSTANCE, CONSUMER_COMPONENT_LOCATION_KEY, \
     COMPONENT_LOCATION_EXCHANGE_NAME
 from utils import concatenate_images
+from settings import MINIO_PUT_CACHE, MINIO_GET_CACHE
 
 
 class AsyncRabbitMQError(Exception):
@@ -26,7 +27,8 @@ class AsyncRabbitMQClient:
     def __init__(
             self,
             prefetch_count: int = 1,
-            heartbeat: int = 30,
+            heartbeat: int = 10,
+            # reconnect_interval: int = 10,
     ):
         self.host: Optional[str] = os.environ.get('RABBITMQ_HOST')
         port_str: Optional[str] = os.environ.get('RABBITMQ_PORT')
@@ -44,7 +46,7 @@ class AsyncRabbitMQClient:
 
         self.prefetch_count: int = prefetch_count
         self.heartbeat: int = heartbeat
-
+        # self.reconnect_interval: int = reconnect_interval
         self.connection: Optional[aio_pika.RobustConnection] = None
         self.channel: Optional[aio_pika.RobustChannel] = None
 
@@ -56,7 +58,8 @@ class AsyncRabbitMQClient:
                 port=self.port,
                 login=self.username,
                 password=self.password,
-                heartbeat=self.heartbeat
+                heartbeat=self.heartbeat,
+                # reconnect_interval=self.reconnect_interval
             )
             self.channel = await self.connection.channel()
             await self.channel.set_qos(prefetch_count=self.prefetch_count)
@@ -173,7 +176,8 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
                         component_info['bucketName'],
                         image_info['imagePath'],
                         session,
-                        MINIO_LOCAL_CACHE_DIR
+                        MINIO_LOCAL_CACHE_DIR,
+                        is_cache=MINIO_GET_CACHE
                     )
                     annotated_images.append({
                         'img': cv.imdecode(np.frombuffer(image_bytes, np.uint8), cv.IMREAD_COLOR),
@@ -202,7 +206,8 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
                 railway_vehicle_bucket,
                 vehicle_image_path,
                 session,
-                MINIO_LOCAL_CACHE_DIR
+                MINIO_LOCAL_CACHE_DIR,
+                is_cache=MINIO_GET_CACHE
             )
             vehicle_image = cv.imdecode(np.frombuffer(image_byte, np.uint8), cv.IMREAD_COLOR)
             print("读取车辆图像完成")
@@ -225,7 +230,7 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
                 detection_result_bucket,
                 image_path,
                 image_buffer.tobytes(),
-                is_cache=False,
+                is_cache=MINIO_PUT_CACHE
             )
             images_path.append(image_path)
         detection_result['imagePaths'] = images_path

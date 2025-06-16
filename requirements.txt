@@ -1,0 +1,11 @@
+aio_pika
+aiofiles
+aiohttp
+fastapi
+matplotlib
+miniopy_async
+numpy==1.26.4
+opencv_python
+pika
+snowflak
+ultralytics

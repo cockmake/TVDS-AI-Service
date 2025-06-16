@@ -31,6 +31,7 @@ async def get_object(bucket_name, object_name, session, minio_cache_dir="./minio
     """
     local_path = os.path.join(minio_cache_dir, bucket_name, object_name)
     if is_cache and os.path.exists(local_path):
+        print("本地磁盘读取")
         async with aiofiles.open(local_path, 'rb') as f:
             data = await f.read()
         return data
