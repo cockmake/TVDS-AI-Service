@@ -161,7 +161,6 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
         # 处理消息
         data = json.loads(message.body.decode())
         logging.info(f"Received message: {json.dumps(data, indent=2, ensure_ascii=False)}")
-
         task_id = data['taskId']
         detection_result_bucket = data['detectionResultBucket']
         template_image_list = data['templateImageList']
@@ -201,42 +200,48 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
             print("读取模板图像完成")
             print("开始读取车辆图像")
             railway_vehicle_bucket = data['railwayVehicleBucket']
-            vehicle_image_path = data['vehicleImagePath']
-            image_byte = await get_object(
-                railway_vehicle_bucket,
-                vehicle_image_path,
-                session,
-                MINIO_LOCAL_CACHE_DIR,
-                is_cache=MINIO_GET_CACHE
-            )
-            vehicle_image = cv.imdecode(np.frombuffer(image_byte, np.uint8), cv.IMREAD_COLOR)
-            print("读取车辆图像完成")
-    component_location_result = component_detection_infer(vehicle_image, component_visual_prompt)
-    print("检测结果：\n", component_location_result)
+            vehicle_image_path_list = data['vehicleImagePaths']
+            component_location_result_list = []
+            for i, vehicle_image_path in enumerate(vehicle_image_path_list):
+                print(f"读取车辆方位图像：{i}")
+                image_byte = await get_object(
+                    railway_vehicle_bucket,
+                    vehicle_image_path,
+                    session,
+                    MINIO_LOCAL_CACHE_DIR,
+                    is_cache=MINIO_GET_CACHE
+                )
+                vehicle_image = cv.imdecode(np.frombuffer(image_byte, np.uint8), cv.IMREAD_COLOR)
+                print(f"车辆方位图像读取完成：{i}")
+                print(f"开始检测车辆方位图像：{i}")
+                component_location_result = component_detection_infer(vehicle_image, component_visual_prompt)
+                print(f"车辆方位图像检测完成：{i}")
+                component_location_result_list.append(component_location_result)
+    print("检测结果：\n", component_location_result_list)
     snowflake_generator = snowflake.SnowflakeGenerator(SNOWFLAKE_INSTANCE)
-    producer_message = {}
-    for component_id, detection_result in component_location_result.items():
-        # 生成唯一的 ID
-        images_path = []
-        for i, (box, conf) in enumerate(zip(detection_result['boxes'], detection_result['confidences'])):
-            x1, y1, x2, y2 = box
-            # 生成唯一 ID
-            unique_id = next(snowflake_generator)
-            # 将处理结果上传到 MinIO
-            image_path = f"{task_id}/{component_id}/{unique_id}.jpg"
-            component_image = vehicle_image[y1:y2, x1:x2]
-            _, image_buffer = cv.imencode('.jpg', component_image)
-            await put_object(
-                detection_result_bucket,
-                image_path,
-                image_buffer.tobytes(),
-                is_cache=MINIO_PUT_CACHE
-            )
-            images_path.append(image_path)
-        detection_result['imagePaths'] = images_path
+    for component_location_result in component_location_result_list:
+        for component_id, detection_result in component_location_result.items():
+            # 生成唯一的 ID
+            images_path = []
+            for i, (box, conf) in enumerate(zip(detection_result['boxes'], detection_result['confidences'])):
+                x1, y1, x2, y2 = box
+                # 生成唯一 ID
+                unique_id = next(snowflake_generator)
+                # 将处理结果上传到 MinIO
+                image_path = f"{task_id}/{component_id}/{unique_id}.jpg"
+                component_image = vehicle_image[y1:y2, x1:x2]
+                _, image_buffer = cv.imencode('.jpg', component_image)
+                await put_object(
+                    detection_result_bucket,
+                    image_path,
+                    image_buffer.tobytes(),
+                    is_cache=MINIO_PUT_CACHE
+                )
+                images_path.append(image_path)
+            detection_result['imagePaths'] = images_path
     producer_message = {
         'taskId': task_id,
-        'componentLocationResult': component_location_result,
+        'componentLocationResults': component_location_result_list,
     }
     print("最终检测结果：\n", producer_message)
     print("开始发布消息")
