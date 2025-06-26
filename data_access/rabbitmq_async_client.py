@@ -202,6 +202,7 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
             railway_vehicle_bucket = data['railwayVehicleBucket']
             vehicle_image_path_list = data['vehicleImagePaths']
             component_location_result_list = []
+            vehicle_image_list = []
             for i, vehicle_image_path in enumerate(vehicle_image_path_list):
                 print(f"读取车辆方位图像：{i}")
                 image_byte = await get_object(
@@ -217,9 +218,11 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
                 component_location_result = component_detection_infer(vehicle_image, component_visual_prompt)
                 print(f"车辆方位图像检测完成：{i}")
                 component_location_result_list.append(component_location_result)
+                vehicle_image_list.append(vehicle_image)
     print("检测结果：\n", component_location_result_list)
     snowflake_generator = snowflake.SnowflakeGenerator(SNOWFLAKE_INSTANCE)
-    for component_location_result in component_location_result_list:
+    for i, component_location_result in enumerate(component_location_result_list):
+        vehicle_image = vehicle_image_list[i]
         for component_id, detection_result in component_location_result.items():
             # 生成唯一的 ID
             images_path = []
