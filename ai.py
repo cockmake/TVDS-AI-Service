@@ -1,6 +1,6 @@
 # 负责ai业务相关的处理
 from typing import List, Dict
-
+import random
 import torch
 from torchvision.ops import nms
 from ultralytics import YOLOE
@@ -74,7 +74,7 @@ def component_detection_infer(source, visual_prompts: List[Dict]):
             'boxes': boxes.cpu().numpy().tolist(),
             'confidences': confidences.cpu().numpy().tolist(),
             'abnormalityResults': [''] * len(boxes),
-            'isAbnormal': [False] * len(boxes)
+            'isAbnormal': [random.choice([True, False]) for _ in range(len(boxes))]
         }
         # 进行异常检测
         # <!todo>
