@@ -9,7 +9,7 @@ import aiohttp
 import cv2 as cv
 import numpy as np
 import snowflake
-from ai import component_detection_infer
+from ai import component_detection_infer_V1, component_detection_infer_V2
 from aio_pika.abc import AbstractIncomingMessage
 from data_access.minio_client import get_object, put_object
 from settings import MINIO_LOCAL_CACHE_DIR, SNOWFLAKE_INSTANCE, CONSUMER_COMPONENT_LOCATION_KEY, \
@@ -155,7 +155,7 @@ rabbit_async_client = AsyncRabbitMQClient()
 
 
 # 处理消息队列
-async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
+async def rabbitmq_component_location_infer_V1(message: AbstractIncomingMessage):
     async with message.process():
         print('component_location_infer')
         # 处理消息
@@ -168,7 +168,8 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
             component_visual_prompt = []
             print("开始读取模板图像")
             for component_id, component_info in template_image_list.items():
-                template_image_info = component_info['templateImage']
+                # 最多4个 这里需要修改
+                template_image_info = component_info['templateImage'][:4]
                 annotated_images = []
                 for image_info in template_image_info:
                     image_bytes = await get_object(
@@ -215,7 +216,74 @@ async def rabbitmq_component_location_infer(message: AbstractIncomingMessage):
                 vehicle_image = cv.imdecode(np.frombuffer(image_byte, np.uint8), cv.IMREAD_COLOR)
                 print(f"车辆方位图像读取完成：{i}")
                 print(f"开始检测车辆方位图像：{i}")
-                component_location_result = component_detection_infer(vehicle_image, component_visual_prompt)
+                component_location_result = component_detection_infer_V1(vehicle_image, component_visual_prompt)
+                print(f"车辆方位图像检测完成：{i}")
+                component_location_result_list.append(component_location_result)
+                vehicle_image_list.append(vehicle_image)
+    print("检测结果：\n", component_location_result_list)
+    snowflake_generator = snowflake.SnowflakeGenerator(SNOWFLAKE_INSTANCE)
+    for i, component_location_result in enumerate(component_location_result_list):
+        vehicle_image = vehicle_image_list[i]
+        for component_id, detection_result in component_location_result.items():
+            # 生成唯一的 ID
+            images_path = []
+            for i, (box, conf) in enumerate(zip(detection_result['boxes'], detection_result['confidences'])):
+                x1, y1, x2, y2 = box
+                # 生成唯一 ID
+                unique_id = next(snowflake_generator)
+                # 将处理结果上传到 MinIO
+                image_path = f"{task_id}/{component_id}/{unique_id}.jpg"
+                component_image = vehicle_image[y1:y2, x1:x2]
+                _, image_buffer = cv.imencode('.jpg', component_image)
+                await put_object(
+                    detection_result_bucket,
+                    image_path,
+                    image_buffer.tobytes(),
+                    is_cache=MINIO_PUT_CACHE
+                )
+                images_path.append(image_path)
+            detection_result['imagePaths'] = images_path
+    producer_message = {
+        'taskId': task_id,
+        'componentLocationResults': component_location_result_list,
+    }
+    print("最终检测结果：\n", producer_message)
+    print("开始发布消息")
+    await rabbit_async_client.publish(
+        COMPONENT_LOCATION_EXCHANGE_NAME,
+        CONSUMER_COMPONENT_LOCATION_KEY,
+        producer_message
+    )
+
+
+async def rabbitmq_component_location_infer_V2(message: AbstractIncomingMessage):
+    async with message.process():
+        print('component_location_infer')
+        # 处理消息
+        data = json.loads(message.body.decode())
+        logging.info(f"Received message: {json.dumps(data, indent=2, ensure_ascii=False)}")
+        task_id = data['taskId']
+        detection_result_bucket = data['detectionResultBucket']
+        component_list = data['componentList']
+        component_location_result_list = []
+        vehicle_image_list = []
+        async with aiohttp.ClientSession() as session:
+            print("开始读取车辆图像")
+            railway_vehicle_bucket = data['railwayVehicleBucket']
+            vehicle_image_path_list = data['vehicleImagePaths']
+            for i, vehicle_image_path in enumerate(vehicle_image_path_list):
+                print(f"读取车辆方位图像：{i}")
+                image_byte = await get_object(
+                    railway_vehicle_bucket,
+                    vehicle_image_path,
+                    session,
+                    MINIO_LOCAL_CACHE_DIR,
+                    is_cache=MINIO_GET_CACHE
+                )
+                vehicle_image = cv.imdecode(np.frombuffer(image_byte, np.uint8), cv.IMREAD_COLOR)
+                print(f"车辆方位图像读取完成：{i}")
+                print(f"开始检测车辆方位图像：{i}")
+                component_location_result = component_detection_infer_V2(vehicle_image, component_list)
                 print(f"车辆方位图像检测完成：{i}")
                 component_location_result_list.append(component_location_result)
                 vehicle_image_list.append(vehicle_image)

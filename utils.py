@@ -197,7 +197,7 @@ def apply_bboxes(
 def split_vehicle_img(
         img: np.ndarray,
         max_width: int = 1024,
-        step_ratio: float = 0.5,
+        step_ratio: float = 0.25,
 ) -> Dict:
     """
     Args:

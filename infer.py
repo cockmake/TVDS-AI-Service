@@ -3,7 +3,7 @@ from copy import deepcopy
 import cv2 as cv
 import numpy as np
 
-from ai import component_detection_infer
+from ai import component_detection_infer_V1
 from utils import concatenate_images
 
 
@@ -118,7 +118,7 @@ def main():
         'detection_iou': 0.1,
         'abnormality_desc': "component_info['abnormalityDesc']",
     }
-    r = component_detection_infer(source, [visual_prompt, deepcopy(visual_prompt)])
+    r = component_detection_infer_V1(source, [visual_prompt, deepcopy(visual_prompt)])
     print(r)
 
 

@@ -4,8 +4,8 @@ aiohttp
 fastapi
 matplotlib
 miniopy_async
-numpy==1.26.4
+numpy
 opencv_python
 pika
-snowflake
+snowflake-id
 ultralytics
