@@ -1,18 +1,15 @@
 # 负责ai业务相关的处理
-from typing import List, Dict
 import random
+from typing import List, Dict
+
 import torch
 from torchvision.ops import nms, batched_nms
-from ultralytics import YOLOE, YOLO
+from ultralytics import YOLO
 from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
-from utils import split_vehicle_img
+from utils import split_vehicle_img, merge_adjacent_boxes
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-# model_name = "yoloe-v8l-seg"
-# model_name = "yoloe-11l-seg"
-# model = YOLOE(f"./models/{model_name}.pt").to(device)
-
 model_name = "yolo11x.pt"
 model = YOLO(f"./models/{model_name}").to(device)
 print(f"{model_name}模型加载完成")
@@ -95,12 +92,15 @@ def component_detection_infer_V2(source, component_info: List):
     img_list = [image_info['img'] for image_info in image_split]
     box_list, cls_list, conf_list = [], [], []
     result_generator = []
+    conf = 0.7
+    iou = 0.25
     for img in img_list:
         result = model.predict(
             source=img,
+            imgsz=1024,
             # save=True,
-            conf=0.4,
-            iou=0.25,
+            conf=conf,
+            iou=iou,
             verbose=False
         )
         result_generator.append(result[0])
@@ -119,10 +119,19 @@ def component_detection_infer_V2(source, component_info: List):
         idxs = torch.cat(cls_list, dim=0)
         scores = torch.cat(conf_list, dim=0)
         # Apply NMS
-        keep_indices = batched_nms(boxes, scores, idxs, iou_threshold=0.25)
+        keep_indices = batched_nms(boxes, scores, idxs, iou_threshold=iou)
         boxes = boxes[keep_indices] / scale_ratio
         scores = scores[keep_indices]
         labels = idxs[keep_indices]
+        # 合并相邻的边界框
+        # 设置独立的宽度和高度阈值
+        w_distance_threshold = source.shape[1] * 0.004
+        h_distance_threshold = source.shape[0] * 0.020
+        boxes, scores, labels = merge_adjacent_boxes(
+            boxes, scores, labels,
+            w_distance_threshold=w_distance_threshold,
+            h_distance_threshold=h_distance_threshold
+        )
         # 进行后处理
         boxes = boxes.round().int()
         labels = labels.int()

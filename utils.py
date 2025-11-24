@@ -1,12 +1,87 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Dict
-
+import torch
 import cv2 as cv
 import matplotlib.pyplot as plt
 import numpy as np
 from ultralytics.utils.instance import Bboxes
 
+def merge_adjacent_boxes(boxes, scores, labels, w_distance_threshold, h_distance_threshold):
+    if boxes.numel() == 0:
+        return boxes, scores, labels
+
+    num_boxes = boxes.shape[0]
+
+    # 使用并查集 (DSU) 进行高效聚类
+    parent = list(range(num_boxes))
+
+    def find(i):
+        if parent[i] == i:
+            return i
+        parent[i] = find(parent[i])
+        return parent[i]
+
+    def union(i, j):
+        root_i = find(i)
+        root_j = find(j)
+        if root_i != root_j:
+            parent[root_j] = root_i
+
+    # 遍历所有框对，判断是否相邻并进行合并
+    for i in range(num_boxes):
+        box1 = boxes[i]
+        for j in range(i + 1, num_boxes):
+            box2 = boxes[j]
+
+            gap_x = max(0.0, max(box1[0], box2[0]) - min(box1[2], box2[2]))
+            gap_y = max(0.0, max(box1[1], box2[1]) - min(box1[3], box2[3]))
+
+            if gap_x < w_distance_threshold and gap_y < h_distance_threshold:
+                union(i, j)
+
+    # 按根节点对框进行分组
+    clusters = {}
+    for i in range(num_boxes):
+        root = find(i)
+        if root not in clusters:
+            clusters[root] = []
+        clusters[root].append(i)
+
+    # 合并每个聚类中的框
+    merged_boxes_list = []
+    merged_scores_list = []
+    merged_labels_list = []
+
+    for root in clusters:
+        indices = torch.tensor(clusters[root], device=boxes.device, dtype=torch.long)
+
+        cluster_boxes = boxes[indices]
+        cluster_scores = scores[indices]
+        cluster_labels = labels[indices]
+
+        # 创建一个能完全包围簇内所有框的新框
+        min_x1 = torch.min(cluster_boxes[:, 0])
+        min_y1 = torch.min(cluster_boxes[:, 1])
+        max_x2 = torch.max(cluster_boxes[:, 2])
+        max_y2 = torch.max(cluster_boxes[:, 3])
+        merged_box = torch.tensor([min_x1, min_y1, max_x2, max_y2], device=boxes.device)
+
+        # 新框的类别和置信度继承自簇内置信度最高的那个框
+        max_score_idx = torch.argmax(cluster_scores)
+        merged_score = cluster_scores[max_score_idx]
+        merged_label = cluster_labels[max_score_idx]
+
+        merged_boxes_list.append(merged_box)
+        merged_scores_list.append(merged_score)
+        merged_labels_list.append(merged_label)
+
+    if not merged_boxes_list:
+        return (torch.empty((0, 4), device=boxes.device),
+                torch.empty(0, device=scores.device),
+                torch.empty(0, device=labels.device))
+
+    return torch.stack(merged_boxes_list), torch.stack(merged_scores_list), torch.stack(merged_labels_list)
 
 def plt_show_cv2_img(img: np.ndarray, title: str = ""):
     plt.imshow(cv.cvtColor(img, cv.COLOR_BGR2RGB))
@@ -197,7 +272,7 @@ def apply_bboxes(
 def split_vehicle_img(
         img: np.ndarray,
         max_width: int = 1024,
-        step_ratio: float = 0.25,
+        step_ratio: float = 0.15,
 ) -> Dict:
     """
     Args:
